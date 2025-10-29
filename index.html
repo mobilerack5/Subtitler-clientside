@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kliensoldali Videó Fordító (v2.9 - Dinamikus Betöltés)</title>
+    <title>Kliensoldali Videó Fordító (v2.10 - JsDelivr CDN)</title>
     <style>
         /* A stílus nem változott */
         body { font-family: sans-serif; max-width: 800px; margin: 20px auto; padding: 10px; background-color: #f4f4f4; } h1 { text-align: center; } #container { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); } input[type="file"] { display: block; margin: 20px 0; } button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-right: 10px; } button:disabled { background-color: #ccc; } #status { font-family: monospace; font-weight: bold; background-color: #e0e0e0; padding: 10px; border-radius: 5px; } #log-container { margin-top: 20px; } #log { font-family: monospace; white-space: pre-wrap; word-wrap: break-word; background-color: #222; color: #00ff00; padding: 15px; border-radius: 5px; margin-top: 10px; height: 300px; overflow-y: scroll; font-size: 12px; } textarea { width: 95%; height: 150px; margin-top: 10px; }
@@ -11,8 +11,8 @@
 </head>
 <body>
     <div id="container">
-        <h1>🤖 Böngészőben futó Felirat Készítő (v2.9)</h1>
-        <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. (Dinamikus szkriptbetöltési kísérlet.)</p>
+        <h1>🤖 Böngészőben futó Felirat Készítő (v2.10)</h1>
+        <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. (Ez a verzió a 'cdn.jsdelivr.net' CDN-t használja az 'unpkg' helyett, hátha az Ad-Blocker átengedi.)</p>
         
         <input type="file" id="file_input" accept="audio/*, video/*">
         <button id="process_button">Feldolgozás Indítása</button>
@@ -35,6 +35,7 @@
     </div>
 
     <script type="module">
+        // VÁLTOZÁS: A Transformers.js-t is a jsdelivr-ről töltjük
         import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1";
         
         // Változók (VÁLTOZATLAN)
@@ -42,7 +43,6 @@
         const processButton = document.getElementById('process_button');
         const statusDiv = document.getElementById('status');
         const logDiv = document.getElementById('log');
-        // ... (a többi változó és log/status/progress/sleep funkció ugyanaz)
         const resultsContainer = document.getElementById('results_container');
         const resultsSrt = document.getElementById('results_srt');
         const downloadSrtBtn = document.getElementById('download_srt_btn');
@@ -55,8 +55,7 @@
         function updateStatus(message, percentage = null) { if (percentage !== null) { statusDiv.textContent = `${message} - ${percentage.toFixed(2)}%`; } else { statusDiv.textContent = message; } }
         const progressCallback = (data) => { if (data.status === 'download') { updateStatus(`Modell letöltése: ${data.name}`, data.progress); logMessage(`Letöltés: ${data.file} (${(data.loaded / 1024 / 1024).toFixed(2)}MB / ${(data.total / 1024 / 1024).toFixed(2)}MB)`); } else if (data.status === 'progress') { updateStatus('Feldolgozás...', data.progress); } else if (data.status === 'done') { updateStatus('Betöltve. Feldolgozás indul.'); } else { logMessage(`Státusz: ${data.status}`); } };
 
-
-        // --- ÚJ Dinamikus Szkriptbetöltő ---
+        // --- Dinamikus Szkriptbetöltő (VÁLTOZATLAN) ---
         function loadScript(url) {
             return new Promise((resolve, reject) => {
                 logMessage(`Szkript dinamikus betöltése: ${url}`);
@@ -81,20 +80,18 @@
             logMessage("FFmpeg (Multi-Threaded) betöltése...");
             updateStatus("FFmpeg betöltése...");
 
-            // JAVÍTÁS: Előbb dinamikusan betöltjük a szkripteket
             try {
-                // Párhuzamosan töltjük
+                // VÁLTOZÁS: Az unpkg.com-ot cdn.jsdelivr.net/npm-re cseréljük
                 await Promise.all([
-                    loadScript("https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"),
-                    loadScript("https://unpkg.com/@ffmpeg/util@0.12.1/dist/ffmpeg-util.min.js")
+                    loadScript("https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js"),
+                    loadScript("https://cdn.jsdelivr.net/npm/@ffmpeg/util@0.12.1/dist/ffmpeg-util.min.js")
                 ]);
                 logMessage("Mindkét FFmpeg szkript sikeresen behívva.");
             } catch (error) {
                 logMessage("FATÁLIS HIBA a szkriptek behívásakor.");
-                throw error; // Továbbdobjuk a hibát a fő try-catch blokknak
+                throw error;
             }
             
-            // Most már léteznie kell a globalThis.FFmpeg-nek
             if (!globalThis.FFmpeg || !globalThis.FFmpegUtil) {
                 logMessage("FATÁLIS HIBA: A szkriptek betöltődtek, de a 'globalThis.FFmpeg' objektum mégsem létezik. ");
                 throw new Error("FFmpeg objektum nem található a szkriptek betöltése után.");
@@ -112,7 +109,8 @@
                 }
             });
 
-            const baseURL = "https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/esm";
+            // VÁLTOZÁS: A baseURL-t is cseréljük
+            const baseURL = "https://cdn.jsdelivr.net/npm/@ffmpeg/core-mt@0.12.6/dist/esm";
             await ffmpeg.load({
                 coreURL: `${baseURL}/ffmpeg-core.js`,
                 wasmURL: `${baseURL}/ffmpeg-core.wasm`,
@@ -150,7 +148,7 @@
                 await ffmpeg.writeFile('input_media', await fetchFile(inputFile));
                 await ffmpeg.exec(['-i', 'input_media', '-vn', '-ac', '1', '-ar', '16000', '-f', 'f32le', 'audio.raw']);
                 const audioData = await ffmpeg.readFile('audio.raw');
-                const audioFloat32 = new Float32Array(audioData.buffer); // Javítva Float32Array-re
+                const audioFloat32 = new Float32Array(audioData.buffer);
                 logMessage("Audio előfeldolgozás kész.");
                 
                 // 3. lépés: ASR
@@ -209,8 +207,7 @@
                 logMessage(`FATÁLIS HIBA: ${error.message}`);
                 updateStatus(`Hiba: ${error.message}`);
                 console.error(error);
-                alert(`FATÁLIS HIBA TÖRTÉNT: ${error.message}`); // Visszatettem egy alertet ide
-
+                alert(`FATÁLIS HIBA TÖRTÉNT: ${error.message}`);
             } finally {
                 processButton.disabled = false;
             }
@@ -235,7 +232,7 @@
                 logMessage("Muxolás kész. Fájl olvasása...");
                 const data = await ffmpeg.readFile('output.mp4');
                 logMessage("Videó letöltésének indítása...");
-                downloadBlob(new Blob([data.buffer], { type: 'video/Dmp4' }), 'video_magyar_felirattal.mp4');
+                downloadBlob(new Blob([data.buffer], { type: 'video/mp4' }), 'video_magyar_felirattal.mp4');
                 updateStatus("Letöltés kész!");
             } catch (error) {
                 logMessage(`HIBA a videó feldolgozásánál: ${error.message}`);
@@ -254,7 +251,7 @@
             const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
         }
         
-        logMessage("A v2.9-es (Dinamikus Betöltés) oldal készen áll.");
+        logMessage("A v2.10-es (JsDelivr CDN) oldal készen áll.");
 
     </script>
 </body>
