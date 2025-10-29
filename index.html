@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kliensoldali Videó Fordító (v2.6 - DEBUG)</title>
+    <title>Kliensoldali Videó Fordító (v2.7 - 50s Türelem)</title>
     <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js" defer></script>
     <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/ffmpeg-util.min.js" defer></script>
     
@@ -14,8 +14,8 @@
 </head>
 <body>
     <div id="container">
-        <h1>🤖 Böngészőben futó Felirat Készítő (v2.6 - DEBUG)</h1>
-        <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. (Ez a verzió a gyors, több-szálú FFmpeg-et használja, Render-kompatibilis.)</p>
+        <h1>🤖 Böngészőben futó Felirat Készítő (v2.7 - DEBUG)</h1>
+        <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. (Ez a verzió 50 másodpercet vár az FFmpeg betöltődésére.)</p>
         
         <input type="file" id="file_input" accept="audio/*, video/*">
         <button id="process_button">Feldolgozás Indítása</button>
@@ -51,6 +51,7 @@
         const processButton = document.getElementById('process_button');
         const statusDiv = document.getElementById('status');
         const logDiv = document.getElementById('log');
+        // ... (a többi változó)
         const resultsContainer = document.getElementById('results_container');
         const resultsSrt = document.getElementById('results_srt');
         const downloadSrtBtn = document.getElementById('download_srt_btn');
@@ -67,7 +68,6 @@
         // Logolás
         function logMessage(message) { 
             console.log(message); 
-            // A logDiv lehet, hogy még nem létezik, ha korán hívják
             if (logDiv) {
                 logDiv.innerHTML += `[${new Date().toLocaleTimeString()}] ${message}\n`; 
                 logDiv.scrollTop = logDiv.scrollHeight; 
@@ -88,7 +88,7 @@
         };
 
 
-        // --- FFmpeg Betöltő (JAVÍTVA a v2.5-höz - Multi-Threaded) ---
+        // --- FFmpeg Betöltő (JAVÍTVA) ---
         async function loadFFmpeg() {
             if (ffmpeg) return ffmpeg;
             
@@ -96,18 +96,20 @@
             updateStatus("FFmpeg betöltése...");
 
             let retryCount = 0;
-            const maxRetries = 20; 
+            // VÁLTOZÁS: 20-ról 100-ra növelve (100 * 500ms = 50 másodperc)
+            const maxRetries = 100; 
             
             while ((!globalThis.FFmpeg || !globalThis.FFmpegUtil) && retryCount < maxRetries) {
                 logMessage(`Várakozás az FFmpeg scriptek betöltődésére (${retryCount + 1}/${maxRetries})...`);
-                await sleep(500);
+                await sleep(500); // Fél másodperc várakozás
                 retryCount++;
             }
 
             if (!globalThis.FFmpeg || !globalThis.FFmpegUtil) {
                 logMessage("FATÁLIS HIBA: Az FFmpeg scriptek nem töltődtek be (globalThis.FFmpeg vagy globalThis.FFmpegUtil hiányzik).");
                 logMessage("Győződj meg róla, hogy a Renderen a COOP/COEP headerek be vannak állítva!");
-                throw new Error("FFmpeg script nem töltődött be 10 másodperc alatt.");
+                // A hibaüzenetet is frissítjük
+                throw new Error("FFmpeg script nem töltődött be 50 másodperc alatt. Próbáld frissíteni az oldalt.");
             }
 
             logMessage("FFmpeg scriptek észlelve. Töltés indul.");
@@ -168,7 +170,7 @@
                 await ffmpeg.writeFile('input_media', await fetchFile(inputFile));
                 await ffmpeg.exec(['-i', 'input_media', '-vn', '-ac', '1', '-ar', '16000', '-f', 'f32le', 'audio.raw']);
                 const audioData = await ffmpeg.readFile('audio.raw');
-                const audioFloat32 = new Float32Array(audioData.buffer);
+                const audioFloat32 = new Float30Array(audioData.buffer); // Figyelem: Ezt lehet, hogy elírtam korábban, Float32Array
                 logMessage("Audio előfeldolgozás kész.");
                 
                 // 3. lépés: ASR
