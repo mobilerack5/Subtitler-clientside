@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kliensoldali Videó Fordító (v2.3 - Auto Nyelvfelismerés)</title>
+    <title>Kliensoldali Videó Fordító (v2.4 - Robusztus betöltés)</title>
     <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js" defer></script>
     <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/ffmpeg-util.min.js" defer></script>
 
@@ -35,7 +35,7 @@
 </head>
 <body>
     <div id="container">
-        <h1>🤖 Böngészőben futó Felirat Készítő (v2.3)</h1>
+        <h1>🤖 Böngészőben futó Felirat Készítő (v2.4)</h1>
         <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. A program automatikusan felismeri a nyelvet, és ha angol, lefordítja magyarra.</p>
         
         <input type="file" id="file_input" accept="audio/*, video/*">
@@ -75,6 +75,11 @@
         let inputFile = null;
         let ffmpeg = null;
 
+        // --- ÚJ Segédfüggvény a várakozáshoz ---
+        function sleep(ms) {
+            return new Promise(resolve => setTimeout(resolve, ms));
+        }
+
         // --- Logolási és Státusz funkciók (VÁLTOZATLAN) ---
         function logMessage(message) {
             console.log(message);
@@ -101,27 +106,53 @@
             }
         };
 
-        // --- FFmpeg Betöltő (VÁLTOZATLAN) ---
+        // --- FFmpeg Betöltő (JAVÍTVA) ---
         async function loadFFmpeg() {
-            if (ffmpeg) return ffmpeg;
-            logMessage("FFmpeg betöltése... (kb. 30MB letöltés első alkalommal)");
+            if (ffmpeg) return ffmpeg; // Ha már be van töltve, térjünk vissza
+            
+            logMessage("FFmpeg betöltése...");
             updateStatus("FFmpeg betöltése...");
-            const { FFmpeg } = globalThis.FFmpeg;
+
+            // JAVÍTÁS: Várakozó ciklus, amíg a szkriptek be nem töltődnek
+            let retryCount = 0;
+            const maxRetries = 20; // Max 10 másodpercig várunk (20 * 500ms)
+            
+            // Várunk, amíg MINDKÉT objektum létezik (a 'defer' szkriptek lefutottak)
+            while ((!globalThis.FFmpeg || !globalThis.FFmpegUtil) && retryCount < maxRetries) {
+                logMessage(`Várakozás az FFmpeg scriptek betöltődésére (${retryCount + 1}/${maxRetries})...`);
+                await sleep(500); // Fél másodperc várakozás
+                retryCount++;
+            }
+
+            // Ellenőrizzük, hogy a várakozás sikeres volt-e
+            if (!globalThis.FFmpeg || !globalThis.FFmpegUtil) {
+                logMessage("FATÁLIS HIBA: Az FFmpeg scriptek nem töltődtek be (globalThis.FFmpeg vagy globalThis.FFmpegUtil hiányzik).");
+                throw new Error("FFmpeg script nem töltődött be 10 másodperc alatt. Próbáld frissíteni az oldalt.");
+            }
+
+            logMessage("FFmpeg scriptek észlelve. Töltés indul.");
+            
+            // Most már biztonságos a hívás, mert tudjuk, hogy létezik
+            const { FFmpeg } = globalThis.FFmpeg; 
+            
             ffmpeg = new FFmpeg();
+
             ffmpeg.on('log', ({ message }) => {
                 // FFmpeg logolás szűrése
             });
             ffmpeg.on('progress', ({ progress, time }) => {
                 updateStatus("Videó/Hang feldolgozás...", progress * 100);
             });
+
             await ffmpeg.load({
                 coreURL: "https://unpkg.com/@ffmpeg/core@0.12.6/dist/esm/ffmpeg-core.js"
             });
+            
             logMessage("FFmpeg sikeresen betöltve.");
             return ffmpeg;
         }
 
-        // --- Fő Feldolgozó Funkció (VÁLTOZTATVA) ---
+        // --- Fő Feldolgozó Funkció (VÁLTOZATLAN) ---
         processButton.addEventListener('click', async () => {
             inputFile = fileInput.files[0];
             if (!inputFile) {
@@ -133,11 +164,11 @@
             logDiv.innerHTML = "";
 
             try {
-                // --- 0. lépés: FFmpeg betöltése (VÁLTOZATLAN) ---
-                const ffmpeg = await loadFFmpeg();
-                const { fetchFile } = globalThis.FFmpegUtil;
+                // --- 0. lépés: FFmpeg betöltése ---
+                const ffmpeg = await loadFFmpeg(); // Ez most már a "várakozó" verzió
+                const { fetchFile } = globalThis.FFmpegUtil; // Ez is biztonságos
 
-                // --- 1. lépés: Modellek betöltése (VÁLTOZATLAN) ---
+                // --- 1. lépés: Modellek betöltése ---
                 logMessage("AI Modellek betöltése...");
                 
                 const transcriber = await pipeline(
@@ -152,7 +183,7 @@
                     { progress_callback: progressCallback }
                 );
 
-                // --- 2. lépés: Audio előfeldolgozás (FFmpeg) (VÁLTOZATLAN) ---
+                // --- 2. lépés: Audio előfeldolgozás (FFmpeg) ---
                 logMessage("Audio előfeldolgozás FFmpeg-gel...");
                 updateStatus("Hang kinyerése és átalakítása...");
                 
@@ -169,8 +200,6 @@
                 logMessage("Audio előfeldolgozás kész.");
                 
                 // --- 3. lépés: Beszédfelismerés (ASR) ---
-                // VÁLTOZÁS: Kivettük a 'language: en'-t, hogy AUTO-DETECT legyen
-                
                 logMessage("Beszédfelismerés és nyelvfelismerés indítása...");
                 updateStatus("Beszédfelismerés...", 0);
                 
@@ -179,7 +208,6 @@
                     stride_length_s: 5,
                     return_timestamps: 'chunks',
                     progress_callback: progressCallback
-                    // NINCS 'language: en' -> Automatikus felismerés!
                 });
 
                 const detectedLang = transcription.lang;
@@ -189,7 +217,6 @@
                 logMessage(`Felismerve ${chunks.length} szövegrészlet.`);
 
                 // --- 4. lépés: Logika és Fordítás ---
-                
                 if (chunks.length === 0) {
                     logMessage("FIGYELEM: Nem található beszéd a fájlban.");
                     updateStatus("Hiba: Nem található beszéd.");
@@ -197,10 +224,8 @@
                     return;
                 }
 
-                // A LÉNYEG: Ellenőrizzük, hogy a nyelv angol-e
-                if (detectedLang !== 'eng' && detectedLang !== 'en') { // 'eng' vagy 'en', biztosra megyünk
+                if (detectedLang !== 'eng' && detectedLang !== 'en') {
                     logMessage(`HIBA: A észlelt nyelv '${detectedLang}', de ez a program csak angolról ('en') fordít.`);
-                    logMessage("A program leáll. Nincs mit fordítani.");
                     updateStatus("Hiba: A fájl nem angol.");
                     processButton.disabled = false;
                     return;
@@ -232,7 +257,7 @@
                 logMessage("Fordítás befejezve!");
                 updateStatus("Kész!", 100);
 
-                // --- 5. lépés: Eredmények megjelenítése (VÁLTOZATLAN) ---
+                // --- 5. lépés: Eredmények megjelenítése ---
                 resultsSrt.value = srtContent;
                 resultsContainer.style.display = 'block';
                 if (inputFile.type.startsWith('video/')) {
@@ -260,8 +285,8 @@
             downloadVideoBtn.disabled = true;
             updateStatus("Videó előkészítése...");
             try {
-                const ffmpeg = await loadFFmpeg();
-                const { fetchFile } = globalThis.FFmpegUtil;
+                const ffmpeg = await loadFFmpeg(); // Biztonságos hívás
+                const { fetchFile } = globalThis.FFmpegUtil; // Biztonságos hívás
 
                 logMessage("Fájlok írása az FFmpeg virtuális memóriába (Muxolás)...");
                 await ffmpeg.writeFile('input.mp4', await fetchFile(inputFile));
