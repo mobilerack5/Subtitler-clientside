@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kliensoldali Videó Fordító (v2.2 - Robusztus)</title>
+    <title>Kliensoldali Videó Fordító (v2.3 - Auto Nyelvfelismerés)</title>
     <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js" defer></script>
     <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/ffmpeg-util.min.js" defer></script>
 
@@ -35,8 +35,8 @@
 </head>
 <body>
     <div id="container">
-        <h1>🤖 Böngészőben futó Felirat Készítő (v2.2)</h1>
-        <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. A program a böngésződben futtatja a beszédfelismerést és a fordítást.</p>
+        <h1>🤖 Böngészőben futó Felirat Készítő (v2.3)</h1>
+        <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. A program automatikusan felismeri a nyelvet, és ha angol, lefordítja magyarra.</p>
         
         <input type="file" id="file_input" accept="audio/*, video/*">
         <button id="process_button">Feldolgozás Indítása</button>
@@ -59,11 +59,9 @@
     </div>
 
     <script type="module">
-        // 3. Kód logikája
-        
         import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1";
 
-        // Változók
+        // Változók (VÁLTOZATLAN)
         const fileInput = document.getElementById('file_input');
         const processButton = document.getElementById('process_button');
         const statusDiv = document.getElementById('status');
@@ -75,7 +73,7 @@
 
         let srtContent = "";
         let inputFile = null;
-        let ffmpeg = null; // FFmpeg példány
+        let ffmpeg = null;
 
         // --- Logolási és Státusz funkciók (VÁLTOZATLAN) ---
         function logMessage(message) {
@@ -111,12 +109,7 @@
             const { FFmpeg } = globalThis.FFmpeg;
             ffmpeg = new FFmpeg();
             ffmpeg.on('log', ({ message }) => {
-                // Túl sok logot generál, szűrjük
-                if (message.includes('size=')) {
-                    // Csak a progress üzeneteket tartjuk meg, de azokat is ritkítjuk
-                } else {
-                    logMessage(`[FFmpeg]: ${message}`);
-                }
+                // FFmpeg logolás szűrése
             });
             ffmpeg.on('progress', ({ progress, time }) => {
                 updateStatus("Videó/Hang feldolgozás...", progress * 100);
@@ -140,17 +133,16 @@
             logDiv.innerHTML = "";
 
             try {
-                // --- 0. lépés: FFmpeg betöltése az előfeldolgozáshoz ---
+                // --- 0. lépés: FFmpeg betöltése (VÁLTOZATLAN) ---
                 const ffmpeg = await loadFFmpeg();
                 const { fetchFile } = globalThis.FFmpegUtil;
 
-                // --- 1. lépés: Modellek betöltése ---
-                logMessage("AI Modellek betöltése... (első alkalommal lassú lehet)");
+                // --- 1. lépés: Modellek betöltése (VÁLTOZATLAN) ---
+                logMessage("AI Modellek betöltése...");
                 
-                // JAVÍTÁS: Átváltunk a többnyelvű 'base' modellre a '.en' helyett
                 const transcriber = await pipeline(
                     'automatic-speech-recognition', 
-                    'Xenova/whisper-base', // '.en' NÉLKÜL - TÖBBNYELVŰ
+                    'Xenova/whisper-base', // Többnyelvű
                     { progress_callback: progressCallback }
                 );
                 
@@ -160,20 +152,12 @@
                     { progress_callback: progressCallback }
                 );
 
-                // --- 2. lépés: Audio előfeldolgozás (FFmpeg) ---
-                // Ez az ÚJ, kulcsfontosságú lépés
+                // --- 2. lépés: Audio előfeldolgozás (FFmpeg) (VÁLTOZATLAN) ---
                 logMessage("Audio előfeldolgozás FFmpeg-gel...");
                 updateStatus("Hang kinyerése és átalakítása...");
                 
                 await ffmpeg.writeFile('input_media', await fetchFile(inputFile));
                 
-                // Parancs:
-                // -i input_media: Bemenet
-                // -vn: Videó sáv eldobása
-                // -ac 1: Mono-ra alakítás
-                // -ar 16000: 16kHz-re mintavételezés (ezt várja a Whisper)
-                // -f f32le: Nyers 32-bites float audio-ra alakítás (ezt szereti a Transformers.js)
-                // audio.raw: Kimeneti fájl
                 await ffmpeg.exec([
                     '-i', 'input_media',
                     '-vn', '-ac', '1', '-ar', '16000',
@@ -181,39 +165,50 @@
                 ]);
 
                 const audioData = await ffmpeg.readFile('audio.raw');
-                // Átalakítjuk a nyers bájtokat Float32 tömbbé
                 const audioFloat32 = new Float32Array(audioData.buffer);
-
                 logMessage("Audio előfeldolgozás kész.");
                 
                 // --- 3. lépés: Beszédfelismerés (ASR) ---
-                logMessage("Beszédfelismerés (ASR) indítása...");
+                // VÁLTOZÁS: Kivettük a 'language: en'-t, hogy AUTO-DETECT legyen
+                
+                logMessage("Beszédfelismerés és nyelvfelismerés indítása...");
                 updateStatus("Beszédfelismerés...", 0);
                 
-                // JAVÍTÁS: Már nem a 'inputFile'-t, hanem a tiszta 'audioFloat32' adatot adjuk át!
                 const transcription = await transcriber(audioFloat32, {
                     chunk_length_s: 30,
                     stride_length_s: 5,
                     return_timestamps: 'chunks',
-                    progress_callback: progressCallback,
-                    language: 'en', // Manuálisan jelezzük a többnyelvű modellnek, hogy angolt várunk
-                    task: 'transcribe'
+                    progress_callback: progressCallback
+                    // NINCS 'language: en' -> Automatikus felismerés!
                 });
 
+                const detectedLang = transcription.lang;
                 const chunks = transcription.chunks;
 
-                // HIBAKEZELÉS: Mi van, ha még mindig 0?
+                logMessage(`ASR kész. Észlelt nyelv: ${detectedLang || 'ismeretlen'}.`);
+                logMessage(`Felismerve ${chunks.length} szövegrészlet.`);
+
+                // --- 4. lépés: Logika és Fordítás ---
+                
                 if (chunks.length === 0) {
-                    logMessage("ASR kész. FIGYELEM: 0 szövegrészlet felismerve. A fájl valószínűleg néma vagy nem tartalmaz angol beszédet.");
-                    updateStatus("Hiba: Nem található beszéd a fájlban.");
+                    logMessage("FIGYELEM: Nem található beszéd a fájlban.");
+                    updateStatus("Hiba: Nem található beszéd.");
                     processButton.disabled = false;
-                    return; // Leállítjuk a futást
+                    return;
                 }
 
-                logMessage(`ASR kész. ${chunks.length} szövegrészlet felismerve.`);
+                // A LÉNYEG: Ellenőrizzük, hogy a nyelv angol-e
+                if (detectedLang !== 'eng' && detectedLang !== 'en') { // 'eng' vagy 'en', biztosra megyünk
+                    logMessage(`HIBA: A észlelt nyelv '${detectedLang}', de ez a program csak angolról ('en') fordít.`);
+                    logMessage("A program leáll. Nincs mit fordítani.");
+                    updateStatus("Hiba: A fájl nem angol.");
+                    processButton.disabled = false;
+                    return;
+                }
+
+                logMessage("Észlelt nyelv angol. Fordítás magyarra folyamatban...");
                 updateStatus("Fordítás...");
 
-                // --- 4. lépés: Fordítás és SRT generálás (VÁLTOZATLAN) ---
                 srtContent = "";
                 for (let i = 0; i < chunks.length; i++) {
                     const chunk = chunks[i];
@@ -265,11 +260,10 @@
             downloadVideoBtn.disabled = true;
             updateStatus("Videó előkészítése...");
             try {
-                const ffmpeg = await loadFFmpeg(); // Már be van töltve, de biztonság kedvéért
+                const ffmpeg = await loadFFmpeg();
                 const { fetchFile } = globalThis.FFmpegUtil;
 
                 logMessage("Fájlok írása az FFmpeg virtuális memóriába (Muxolás)...");
-                // Újra be kell írni az input fájlt, mert az előző futás törölhette
                 await ffmpeg.writeFile('input.mp4', await fetchFile(inputFile));
                 await ffmpeg.writeFile('subtitles.srt', srtContent);
 
