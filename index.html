@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kliensoldali Videó Fordító (v2)</title>
+    <title>Kliensoldali Videó Fordító (v2.1 - Javítva)</title>
     <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js" defer></script>
     <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/ffmpeg-util.min.js" defer></script>
-
+    
     <style>
         body { font-family: sans-serif; max-width: 800px; margin: 20px auto; padding: 10px; background-color: #f4f4f4; }
         h1 { text-align: center; }
@@ -34,7 +34,7 @@
 </head>
 <body>
     <div id="container">
-        <h1>🤖 Böngészőben futó Felirat Készítő (v2)</h1>
+        <h1>🤖 Böngészőben futó Felirat Készítő (v2.1)</h1>
         <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. A program a böngésződben futtatja a beszédfelismerést és a fordítást.</p>
         
         <input type="file" id="file_input" accept="audio/*, video/*">
@@ -57,10 +57,12 @@
         </div>
     </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1"></script>
-
     <script type="module">
         // 3. Kód logikája
+        
+        // JAVÍTÁS: A pipeline importálása közvetlenül a modulba
+        import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1";
+
         const fileInput = document.getElementById('file_input');
         const processButton = document.getElementById('process_button');
         const statusDiv = document.getElementById('status');
@@ -240,15 +242,6 @@
                 logMessage("Muxolás indítása... (c copy - gyors)");
                 updateStatus("Videó muxolása...", 0);
 
-                // Parancs:
-                // -i input.mp4: Bemeneti videó
-                // -i subtitles.srt: Bemeneti felirat
-                // -c copy: MINDENT másolj (videó, hang), ne kódold újra! (EZ A LÉNYEG)
-                // -c:s mov_text: A felirat sávot 'mov_text'-ként kódolja (MP4 kompatibilis)
-                // -map 0: Bemenet 0 (videó) összes sávja
-                // -map 1: Bemenet 1 (felirat) összes sávja
-                // -metadata...: Beállítja a felirat nyelvét 'hun'-ra
-                // output.mp4: Kimeneti fájl
                 await ffmpeg.exec([
                     '-i', 'input.mp4',
                     '-i', 'subtitles.srt',
@@ -270,6 +263,7 @@
             } catch (error) {
                 logMessage(`HIBA a videó feldolgozásánál: ${error.message}`);
                 updateStatus(`Videó hiba: ${error.message}`);
+
             } finally {
                 downloadVideoBtn.disabled = false;
             }
