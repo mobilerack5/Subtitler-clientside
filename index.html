@@ -3,17 +3,18 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kliensoldali Videó Fordító (v2.5 - Multi-Threaded)</title>
+    <title>Kliensoldali Videó Fordító (v2.6 - DEBUG)</title>
     <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.10/dist/ffmpeg.min.js" defer></script>
     <script src="https://unpkg.com/@ffmpeg/util@0.12.1/dist/ffmpeg-util.min.js" defer></script>
     
     <style>
+        /* A stílus nem változott */
         body { font-family: sans-serif; max-width: 800px; margin: 20px auto; padding: 10px; background-color: #f4f4f4; } h1 { text-align: center; } #container { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); } input[type="file"] { display: block; margin: 20px 0; } button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-right: 10px; } button:disabled { background-color: #ccc; } #status { font-family: monospace; font-weight: bold; background-color: #e0e0e0; padding: 10px; border-radius: 5px; } #log-container { margin-top: 20px; } #log { font-family: monospace; white-space: pre-wrap; word-wrap: break-word; background-color: #222; color: #00ff00; padding: 15px; border-radius: 5px; margin-top: 10px; height: 300px; overflow-y: scroll; font-size: 12px; } textarea { width: 95%; height: 150px; margin-top: 10px; }
     </style>
 </head>
 <body>
     <div id="container">
-        <h1>🤖 Böngészőben futó Felirat Készítő (v2.5 - MT)</h1>
+        <h1>🤖 Böngészőben futó Felirat Készítő (v2.6 - DEBUG)</h1>
         <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. (Ez a verzió a gyors, több-szálú FFmpeg-et használja, Render-kompatibilis.)</p>
         
         <input type="file" id="file_input" accept="audio/*, video/*">
@@ -28,7 +29,7 @@
         </div>
         
         <div id="results_container" style="display:none;">
-            <h3>Eredmény (MagAR .SRT felirat):</h3>
+            <h3>Eredmény (Magyar .SRT felirat):</h3>
             <textarea id="results_srt" readonly></textarea>
             <br>
             <button id="download_srt_btn">SRT Letöltése</button>
@@ -37,21 +38,54 @@
     </div>
 
     <script type="module">
+        // --- DEBUG 1 ---
+        alert('DEBUG 1: SCRIPT MODUL ELINDULT');
+
         import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1";
         
-        // Változók és segédfüggvények (VÁLTOZATLAN)
+        // --- DEBUG 2 ---
+        alert('DEBUG 2: PIPELINE IMPORTÁLVA (Transformers.js betöltve)');
+
+        // Változók
         const fileInput = document.getElementById('file_input');
         const processButton = document.getElementById('process_button');
         const statusDiv = document.getElementById('status');
         const logDiv = document.getElementById('log');
-        // ... (a többi változó és log/status/progress/sleep funkció ugyanaz)
+        const resultsContainer = document.getElementById('results_container');
+        const resultsSrt = document.getElementById('results_srt');
+        const downloadSrtBtn = document.getElementById('download_srt_btn');
+        const downloadVideoBtn = document.getElementById('download_video_btn');
+
+        // --- DEBUG 3 ---
+        alert('DEBUG 3: VÁLTOZÓK DEFINIÁLVA (DOM elemek megtalálva)');
+
         let srtContent = "";
         let inputFile = null;
         let ffmpeg = null;
         function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
-        function logMessage(message) { console.log(message); logDiv.innerHTML += `[${new Date().toLocaleTimeString()}] ${message}\n`; logDiv.scrollTop = logDiv.scrollHeight; }
-        function updateStatus(message, percentage = null) { if (percentage !== null) { statusDiv.textContent = `${message} - ${percentage.toFixed(2)}%`; } else { statusDiv.textContent = message; } }
-        const progressCallback = (data) => { if (data.status === 'download') { updateStatus(`Modell letöltése: ${data.name}`, data.progress); logMessage(`Letöltés: ${data.file} (${(data.loaded / 1024 / 1024).toFixed(2)}MB / ${(data.total / 1024 / 1024).toFixed(2)}MB)`); } else if (data.status === 'progress') { updateStatus('Feldolgozás...', data.progress); } else if (data.status === 'done') { updateStatus('Betöltve. Feldolgozás indul.'); } else { logMessage(`Státusz: ${data.status}`); } };
+        
+        // Logolás
+        function logMessage(message) { 
+            console.log(message); 
+            // A logDiv lehet, hogy még nem létezik, ha korán hívják
+            if (logDiv) {
+                logDiv.innerHTML += `[${new Date().toLocaleTimeString()}] ${message}\n`; 
+                logDiv.scrollTop = logDiv.scrollHeight; 
+            }
+        }
+        function updateStatus(message, percentage = null) { 
+            if (statusDiv) {
+                if (percentage !== null) { 
+                    statusDiv.textContent = `${message} - ${percentage.toFixed(2)}%`; 
+                } else { 
+                    statusDiv.textContent = message; 
+                }
+            }
+        }
+        const progressCallback = (data) => { 
+            // ... (progress callback logika)
+            if (data.status === 'download') { updateStatus(`Modell letöltése: ${data.name}`, data.progress); logMessage(`Letöltés: ${data.file} (${(data.loaded / 1024 / 1024).toFixed(2)}MB / ${(data.total / 1024 / 1024).toFixed(2)}MB)`); } else if (data.status === 'progress') { updateStatus('Feldolgozás...', data.progress); } else if (data.status === 'done') { updateStatus('Betöltve. Feldolgozás indul.'); } else { logMessage(`Státusz: ${data.status}`); }
+        };
 
 
         // --- FFmpeg Betöltő (JAVÍTVA a v2.5-höz - Multi-Threaded) ---
@@ -83,14 +117,11 @@
 
             ffmpeg.on('log', ({ message }) => { /* Log szűrés */ });
             ffmpeg.on('progress', ({ progress, time }) => {
-                // Az MT mag néha 'undefined'-et ad, kezeljük le
                 if (progress) {
                     updateStatus("Videó/Hang feldolgozás...", progress * 100);
                 }
             });
 
-            // VÁLTOZÁS: Itt töltjük be a GYORSABB Multi-Threaded (MT) magot
-            // Ez CSAK COOP/COEP headerekkel működik!
             const baseURL = "https://unpkg.com/@ffmpeg/core-mt@0.12.6/dist/esm";
             await ffmpeg.load({
                 coreURL: `${baseURL}/ffmpeg-core.js`,
@@ -102,26 +133,37 @@
             return ffmpeg;
         }
 
-        // --- Fő Feldolgozó Funkció (VÁLTOZATLAN a v2.3 óta) ---
+        // --- Fő Feldolgozó Funkció ---
+        
+        // --- DEBUG 4 ---
+        alert('DEBUG 4: GOMB ESEMÉNYKEZELŐ HOZZÁADÁSA KÖVETKEZIK');
+        
         processButton.addEventListener('click', async () => {
+            
+            // --- DEBUG 5 ---
+            alert('DEBUG 5: GOMB LENYOMVA! (Feldolgozás elindult)');
+
             inputFile = fileInput.files[0];
             if (!inputFile) { alert("Kérlek, válassz egy fájlt!"); return; }
             processButton.disabled = true;
             resultsContainer.style.display = 'none';
-            logDiv.innerHTML = "";
+            logDiv.innerHTML = ""; // Log ablak indításkor törlődik
 
             try {
                 // 0. lépés: FFmpeg (MT) betöltése
+                logMessage("0. lépés: FFmpeg betöltése...");
                 const ffmpeg = await loadFFmpeg();
                 const { fetchFile } = globalThis.FFmpegUtil;
+                logMessage("FFmpeg betöltve.");
 
                 // 1. lépés: Modellek betöltése
-                logMessage("AI Modellek betöltése...");
+                logMessage("1. lépés: AI Modellek betöltése...");
                 const transcriber = await pipeline('automatic-speech-recognition', 'Xenova/whisper-base', { progress_callback: progressCallback });
                 const translator = await pipeline('translation', 'Xenova/opus-mt-en-hu', { progress_callback: progressCallback });
+                logMessage("AI Modellek betöltve.");
 
                 // 2. lépés: Audio előfeldolgozás
-                logMessage("Audio előfeldolgozás FFmpeg-gel...");
+                logMessage("2. lépés: Audio előfeldolgozás FFmpeg-gel...");
                 updateStatus("Hang kinyerése és átalakítása...");
                 await ffmpeg.writeFile('input_media', await fetchFile(inputFile));
                 await ffmpeg.exec(['-i', 'input_media', '-vn', '-ac', '1', '-ar', '16000', '-f', 'f32le', 'audio.raw']);
@@ -130,7 +172,7 @@
                 logMessage("Audio előfeldolgozás kész.");
                 
                 // 3. lépés: ASR
-                logMessage("Beszédfelismerés és nyelvfelismerés indítása...");
+                logMessage("3. lépés: Beszédfelismerés indítása...");
                 updateStatus("Beszédfelismerés...", 0);
                 const transcription = await transcriber(audioFloat32, {
                     chunk_length_s: 30, stride_length_s: 5, return_timestamps: 'chunks',
@@ -142,6 +184,7 @@
                 logMessage(`Felismerve ${chunks.length} szövegrészlet.`);
 
                 // 4. lépés: Logika és Fordítás
+                logMessage("4. lépés: Logika és Fordítás...");
                 if (chunks.length === 0) {
                     logMessage("FIGYELEM: Nem található beszéd a fájlban.");
                     updateStatus("Hiba: Nem található beszéd.");
@@ -172,6 +215,7 @@
                 updateStatus("Kész!", 100);
 
                 // 5. lépés: Eredmények
+                logMessage("5. lépés: Eredmények megjelenítése.");
                 resultsSrt.value = srtContent;
                 resultsContainer.style.display = 'block';
                 if (inputFile.type.startsWith('video/')) {
@@ -183,10 +227,18 @@
                 logMessage(`FATÁLIS HIBA: ${error.message}`);
                 updateStatus(`Hiba: ${error.message}`);
                 console.error(error);
+                
+                // --- DEBUG 6 ---
+                alert(`DEBUG 6: FATÁLIS HIBA TÖRTÉNT: ${error.message}`);
+
             } finally {
                 processButton.disabled = false;
             }
         });
+
+        // --- DEBUG 7 ---
+        alert('DEBUG 7: GOMB ESEMÉNYKEZELŐ HOZZÁADVA. Az oldal készen áll.');
+
 
         // --- Letöltési Funkciók (VÁLTOZATLAN) ---
         downloadSrtBtn.addEventListener('click', () => {
@@ -212,6 +264,7 @@
             } catch (error) {
                 logMessage(`HIBA a videó feldolgozásánál: ${error.message}`);
                 updateStatus(`Videó hiba: ${error.message}`);
+                alert(`DEBUG 8: HIBA A VIDEÓ MUXOLÁSA KÖZBEN: ${error.message}`);
             } finally {
                 downloadVideoBtn.disabled = false;
             }
@@ -225,6 +278,10 @@
         function downloadBlob(blob, name) {
             const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
         }
+
+        // --- DEBUG 9 ---
+        alert('DEBUG 9: SCRIPT MODUL VÉGIG FUTOTT');
+
     </script>
 </body>
 </html>
