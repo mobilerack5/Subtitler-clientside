@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kliensoldali Videó Fordító (v2.14 - Header Teszt)</title>
+    <title>Kliensoldali Videó Fordító (v2.15 - Szekvenciális)</title>
     <style>
         /* A stílus nem változott */
         body { font-family: sans-serif; max-width: 800px; margin: 20px auto; padding: 10px; background-color: #f4f4f4; } h1 { text-align: center; } #container { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); } input[type="file"] { display: block; margin: 20px 0; } button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-right: 10px; } button:disabled { background-color: #ccc; } #status { font-family: monospace; font-weight: bold; background-color: #e0e0e0; padding: 10px; border-radius: 5px; } #log-container { margin-top: 20px; } #log { font-family: monospace; white-space: pre-wrap; word-wrap: break-word; background-color: #222; color: #00ff00; padding: 15px; border-radius: 5px; margin-top: 10px; height: 300px; overflow-y: scroll; font-size: 12px; } textarea { width: 95%; height: 150px; margin-top: 10px; }
@@ -11,8 +11,8 @@
 </head>
 <body>
     <div id="container">
-        <h1>🤖 Böngészőben futó Felirat Készítő (v2.14)</h1>
-        <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. (Ez a verzió betöltéskor ellenőrzi a COOP/COEP headereket.)</p>
+        <h1>🤖 Böngészőben futó Felirat Készítő (v2.15)</h1>
+        <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. (Ez a verzió garantálja a szkriptek helyes betöltési sorrendjét.)</p>
         
         <input type="file" id="file_input" accept="audio/*, video/*">
         <button id="process_button">Feldolgozás Indítása</button>
@@ -30,24 +30,9 @@
     </div>
 
     <script type="module">
-        // --- DEBUG 1 ---
-        alert('DEBUG 1: SCRIPT MODUL ELINDULT');
-
-        // --- DEBUG 2: A VÉGSŐ TESZT ---
-        // Ez megmondja, hogy a böngésző LÁTJA-e a headereket.
-        alert('DEBUG 2: "window.crossOriginIsolated" = ' + window.crossOriginIsolated);
+        // Transformers.js import (ezt még hagyjuk CDN-en)
+        import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1";
         
-        // Ha az előző 'false' vagy 'undefined' volt, az import itt elhalhat,
-        // vagy a 'pipeline' később hibát dob.
-        let pipeline;
-        try {
-            const transformers = await import("https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1");
-            pipeline = transformers.pipeline;
-            alert('DEBUG 3: PIPELINE IMPORTÁLVA (Transformers.js betöltve)');
-        } catch (e) {
-            alert(`DEBUG 3 HIBA: Transformers.js import sikertelen: ${e.message}`);
-        }
-
         // Változók (VÁLTOZATLAN)
         const fileInput = document.getElementById('file_input');
         const processButton = document.getElementById('process_button');
@@ -83,7 +68,7 @@
             });
         }
 
-        // --- FFmpeg Betöltő (v2.13-as, várakozó ciklussal) ---
+        // --- FFmpeg Betöltő (JAVÍTVA) ---
         async function loadFFmpeg() {
             if (ffmpeg) return ffmpeg;
             
@@ -91,28 +76,27 @@
             updateStatus("FFmpeg betöltése...");
 
             try {
-                await Promise.all([
-                    loadScript("./ffmpeg-dist/ffmpeg.min.js"),
-                    loadScript("./ffmpeg-dist/ffmpeg-util.min.js")
-                ]);
+                // JAVÍTÁS: Szekvenciális (egymás utáni) betöltés
+                logMessage("1. lépés: Fő FFmpeg szkript betöltése...");
+                await loadScript("./ffmpeg-dist/ffmpeg.min.js");
+                
+                logMessage("2. lépés: FFmpeg segéd-szkript (util) betöltése...");
+                await loadScript("./ffmpeg-dist/ffmpeg-util.min.js");
+                
                 logMessage("Mindkét FFmpeg szkript sikeresen behívva (lokálisan).");
             } catch (error) {
                 logMessage("FATÁLIS HIBA a lokális szkriptek behívásakor.");
                 throw error;
             }
             
-            let retryCount = 0;
-            const maxRetries = 20; // 10s várakozás
-            
-            while ((!globalThis.FFmpeg || !globalThis.FFmpegUtil) && retryCount < maxRetries) {
-                logMessage(`Várakozás az FFmpeg objektumok megjelenésére (${retryCount + 1}/${maxRetries})...`);
-                await sleep(500); 
-                retryCount++;
-            }
+            // A "várakozó ciklusra" már nincs szükség, mert a sorrend garantált,
+            // de biztonságból adunk neki egy pillanatot (100ms)
+            await sleep(100); 
             
             if (!globalThis.FFmpeg || !globalThis.FFmpegUtil) {
-                logMessage("FATÁLIS HIBA: A szkriptek betöltődtek, de az objektumok nem jöttek létre 10 másodperc után sem.");
-                throw new Error("FFmpeg objektum nem jött létre (időtúllépés).");
+                logMessage("FATÁLIS HIBA: A szkriptek betöltődtek, de az objektumok mégsem jöttek létre.");
+                logMessage("Ellenőrizd, hogy a 'v2.11'-nek megfelelő (multi-threaded) fájlok vannak-e a 'ffmpeg-dist' mappában.");
+                throw new Error("FFmpeg objektum nem található (időzítési hiba).");
             }
 
             logMessage("FFmpeg objektumok sikeresen észlelve! Mag betöltése indul.");
@@ -127,6 +111,7 @@
                 }
             });
 
+            // A mag betöltése (ez a Multi-Threaded verzió, amihez az LFS-t beállítottad)
             const baseURL = "./ffmpeg-dist";
             await ffmpeg.load({
                 coreURL: `${baseURL}/ffmpeg-core.js`,
@@ -140,7 +125,6 @@
 
         // --- Fő Feldolgozó Funkció (VÁLTOZATLAN) ---
         processButton.addEventListener('click', async () => {
-            // ... (A teljes 'try...catch...finally' blokk ugyanaz, mint a v2.13-ban) ...
             inputFile = fileInput.files[0];
             if (!inputFile) { alert("Kérlek, válassz egy fájlt!"); return; }
             processButton.disabled = true;
@@ -223,7 +207,6 @@
             downloadBlob(new Blob([srtContent], { type: 'text/plain' }), 'felirat.srt');
         });
         downloadVideoBtn.addEventListener('click', async () => {
-            // ... (A 'downloadVideoBtn' kódja ugyanaz, mint a v2.13-ban) ...
             downloadVideoBtn.disabled = true;
             updateStatus("Videó előkészítése...");
             try {
@@ -250,15 +233,14 @@
 
         // --- Helper Funkciók (VÁLTOZATLAN) ---
         function formatTimestamp(seconds) {
-            const h = Math.floor(seconds / 300); const m = Math.floor((seconds % 3600) / 60); const s = Math.floor(seconds % 60); const ms = Math.floor((seconds - Math.floor(seconds)) * 1000);
+            const h = Math.floor(seconds / 3600); const m = Math.floor((seconds % 3600) / 60); const s = Math.floor(seconds % 60); const ms = Math.floor((seconds - Math.floor(seconds)) * 1000);
             return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')},${ms.toString().padStart(3, '0')}`;
         }
         function downloadBlob(blob, name) {
             const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
         }
         
-        logMessage("A v2.14-es (Header Teszt) oldal készen áll.");
-        alert('DEBUG 4: SCRIPT MODUL VÉGIG FUTOTT (Eseménykezelők hozzáadva)');
+        logMessage("A v2.15-ös (Szekvenciális Betöltés) oldal készen áll.");
 
     </script>
 </body>
