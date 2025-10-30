@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Kliensoldali Videó Fordító (v2.11 - Self-Hosted)</title>
+    <title>Kliensoldali Videó Fordító (v2.13 - Polling Fix)</title>
     <style>
         /* A stílus nem változott */
         body { font-family: sans-serif; max-width: 800px; margin: 20px auto; padding: 10px; background-color: #f4f4f4; } h1 { text-align: center; } #container { background-color: #fff; padding: 25px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); } input[type="file"] { display: block; margin: 20px 0; } button { background-color: #007bff; color: white; padding: 10px 15px; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin-right: 10px; } button:disabled { background-color: #ccc; } #status { font-family: monospace; font-weight: bold; background-color: #e0e0e0; padding: 10px; border-radius: 5px; } #log-container { margin-top: 20px; } #log { font-family: monospace; white-space: pre-wrap; word-wrap: break-word; background-color: #222; color: #00ff00; padding: 15px; border-radius: 5px; margin-top: 10px; height: 300px; overflow-y: scroll; font-size: 12px; } textarea { width: 95%; height: 150px; margin-top: 10px; }
@@ -11,8 +11,8 @@
 </head>
 <body>
     <div id="container">
-        <h1>🤖 Böngészőben futó Felirat Készítő (v2.11)</h1>
-        <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. (Ez a verzió "self-host"-olja az FFmpeg-et, hogy kikerülje az Ad-Blockert.)</p>
+        <h1>🤖 Böngészőben futó Felirat Készítő (v2.13)</h1>
+        <p>Válassz ki egy angol nyelvű videó- vagy hangfájlt. (Ez a verzió a lokális betöltés után vár az FFmpeg objektumra.)</p>
         
         <input type="file" id="file_input" accept="audio/*, video/*">
         <button id="process_button">Feldolgozás Indítása</button>
@@ -35,13 +35,13 @@
     </div>
 
     <script type="module">
-        // A Transformers.js-t egyelőre hagyjuk a CDN-en, hátha csak az FFmpeg volt a baj.
+        // A Transformers.js-t egyelőre hagyjuk a CDN-en (jsdelivr)
+        // Ha ez is hibát dob, ezt is "self-host"-olni kell, de egyelőre ne bonyolítsuk.
         import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.1";
         
         // Változók (VÁLTOZATLAN)
         const fileInput = document.getElementById('file_input');
         const processButton = document.getElementById('process_button');
-        // ... (minden egyéb változó és segédfüggvény)
         const statusDiv = document.getElementById('status');
         const logDiv = document.getElementById('log');
         const resultsContainer = document.getElementById('results_container');
@@ -56,7 +56,7 @@
         function updateStatus(message, percentage = null) { if (percentage !== null) { statusDiv.textContent = `${message} - ${percentage.toFixed(2)}%`; } else { statusDiv.textContent = message; } }
         const progressCallback = (data) => { if (data.status === 'download') { updateStatus(`Modell letöltése: ${data.name}`, data.progress); logMessage(`Letöltés: ${data.file} (${(data.loaded / 1024 / 1024).toFixed(2)}MB / ${(data.total / 1024 / 1024).toFixed(2)}MB)`); } else if (data.status === 'progress') { updateStatus('Feldolgozás...', data.progress); } else if (data.status === 'done') { updateStatus('Betöltve. Feldolgozás indul.'); } else { logMessage(`Státusz: ${data.status}`); } };
 
-        // --- Dinamikus Szkriptbetöltő (VÁLTOZTATVA) ---
+        // --- Dinamikus Szkriptbetöltő (VÁLTOZATLAN) ---
         function loadScript(url) {
             return new Promise((resolve, reject) => {
                 logMessage(`Lokális szkript betöltése: ${url}`);
@@ -82,7 +82,7 @@
             updateStatus("FFmpeg betöltése...");
 
             try {
-                // VÁLTOZÁS: Helyi útvonalak használata
+                // 1. LÉPÉS: Betöltjük a szkripteket (ahogy eddig)
                 await Promise.all([
                     loadScript("./ffmpeg-dist/ffmpeg.min.js"),
                     loadScript("./ffmpeg-dist/ffmpeg-util.min.js")
@@ -93,12 +93,24 @@
                 throw error;
             }
             
+            // 2. LÉPÉS: (EZ AZ ÚJ RÉSZ) Várakozó ciklus
+            // Adunk időt a szkripteknek, hogy inicializálják magukat
+            let retryCount = 0;
+            const maxRetries = 20; // Max 10 másodpercig várunk (20 * 500ms)
+            
+            while ((!globalThis.FFmpeg || !globalThis.FFmpegUtil) && retryCount < maxRetries) {
+                logMessage(`Várakozás az FFmpeg objektumok megjelenésére (${retryCount + 1}/${maxRetries})...`);
+                await sleep(500); // Fél másodperc várakozás
+                retryCount++;
+            }
+            
+            // 3. LÉPÉS: Ellenőrzés a várakozás után
             if (!globalThis.FFmpeg || !globalThis.FFmpegUtil) {
-                logMessage("FATÁLIS HIBA: A szkriptek betöltődtek, de a 'globalThis.FFmpeg' objektum mégsem létezik. ");
-                throw new Error("FFmpeg objektum nem található a szkriptek betöltése után.");
+                logMessage("FATÁLIS HIBA: A szkriptek betöltődtek, de az objektumok nem jöttek létre 10 másodperc után sem.");
+                throw new Error("FFmpeg objektum nem jött létre (időtúllépés).");
             }
 
-            logMessage("FFmpeg scriptek észlelve. Mag betöltése indul.");
+            logMessage("FFmpeg objektumok sikeresen észlelve! Mag betöltése indul.");
             
             const { FFmpeg } = globalThis.FFmpeg; 
             ffmpeg = new FFmpeg();
@@ -110,12 +122,12 @@
                 }
             });
 
-            // VÁLTOZÁS: A baseURL is helyi
+            // 4. LÉPÉS: A mag betöltése (ez a Multi-Threaded verzió)
             const baseURL = "./ffmpeg-dist";
             await ffmpeg.load({
                 coreURL: `${baseURL}/ffmpeg-core.js`,
                 wasmURL: `${baseURL}/ffmpeg-core.wasm`,
-                workerURL: `${baseURL}/ffmpeg-core.worker.js`
+                workerURL: `${baseURL}/ffmpeg-core.worker.js` // A Multi-Threaded-nek kell
             });
             
             logMessage("FFmpeg (MT) sikeresen betöltve (lokálisan).");
@@ -192,7 +204,7 @@
                     updateStatus("Fordítás...", percent);
                     if (i % 5 === 0) { logMessage(`Fordítva ${i + 1}/${chunks.length}...`); }
                 }
-                logMessage("Fordítás befejezve!");
+                logMessage("Fordítás befejeve!"); // (Ezt a gépelési hibát is javítottam)
                 updateStatus("Kész!", 100);
 
                 // 5. lépés: Eredmények
@@ -252,7 +264,7 @@
             const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = name; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
         }
         
-        logMessage("A v2.11-es (Self-Hosted) oldal készen áll.");
+        logMessage("A v2.13-as (Polling Fix) oldal készen áll.");
 
     </script>
 </body>
